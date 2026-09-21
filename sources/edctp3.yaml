@@ -1,0 +1,39 @@
+# Global Health EDCTP3 calls for proposals.
+name: edctp3
+adapter: generic_html_listing
+base_url: https://www.global-health-edctp3.europa.eu
+source_type: html
+schedule: "30 5 * * *"
+enabled: true
+terms_reviewed: true
+notes: >
+  Terms reviewed by the project owner (2026-09-21), including fetching EU Funding &
+  Tenders Portal topic JSON for calls that link there. robots.txt checked 2026-09-21:
+  the EDCTP3 site disallows only admin/search/user paths; ec.europa.eu has no rule
+  matching /info/funding-tenders/. Discovery uses the paginated listing rather than
+  the RSS feed (/node/93/rss_en) because the feed only carries the latest 30 items.
+  The site returns 429 at 3 s/request, hence the slower rate limit.
+config:
+  listing_url: https://www.global-health-edctp3.europa.eu/funding/calls-proposals_en
+  item_selector: article.ecl-content-item
+  link_selector: .ecl-content-block__title a
+  item_fields:
+    title: .ecl-content-block__title a
+    date: .ecl-content-block__primary-meta-item time
+  definition_list: dl.ecl-description-list
+  pagination:
+    selector: li.ecl-pagination__item--next a
+    max_pages: 20
+  rate_limit_seconds: 10
+  reject_markers: ["<title>Sorry - "]
+  url_rewrites:
+    # F&T Portal topic pages are rendered in JavaScript; fetch the topic's JSON instead.
+    # Links carry search state as "?..." or old-style ";key=value" parameters, and the
+    # topic id appears in either case (the JSON endpoint only accepts lower case), so the
+    # identity URL uses the lower-case id too.
+    - match: 'https://ec\.europa\.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/(?P<topic>[A-Za-z0-9._-]+)([;?].*)?'
+      url: "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{topic_lower}"
+      fetch_url: "https://ec.europa.eu/info/funding-tenders/opportunities/data/topicDetails/{topic_lower}.json"
+    # EDCTP3 document pages are wrappers around a PDF; fetch the PDF.
+    - match: 'https://www\.global-health-edctp3\.europa\.eu/document/(?P<doc>[0-9a-f-]+)_en'
+      fetch_url: "https://www.global-health-edctp3.europa.eu/document/download/{doc}_en"

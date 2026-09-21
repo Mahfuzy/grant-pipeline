@@ -1,0 +1,87 @@
+[project]
+name = "fundscout"
+version = "0.1.0"
+description = "Fundscout grant data pipeline: collect, extract, normalise and track grant opportunities."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.13",
+    "anthropic>=0.40",
+    "apscheduler>=3.10,<4",
+    "beautifulsoup4>=4.12",
+    "fastapi>=0.115",
+    "feedparser>=6.0",
+    "httpx>=0.27",
+    "pdfplumber>=0.11",
+    "psycopg[binary]>=3.2",
+    "pycountry>=24.6",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.9",
+    "selectolax>=0.3",
+    "sqlalchemy>=2.0",
+    "structlog>=24.1",
+    "tenacity>=9.0",
+    "trafilatura>=1.12",
+    "typer>=0.12",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+# Only needed for sources that require JS rendering. After installing, run
+# `uv run playwright install chromium` to download the browser.
+browser = ["playwright>=1.45"]
+
+[project.scripts]
+fundscout = "fundscout.cli:app"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fundscout"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.format]
+# Leave code samples in SPEC.md / README.md alone.
+exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["feedparser.*", "trafilatura.*", "pdfplumber.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-m 'not live'"
+markers = [
+    "live: hits the live internet or real LLM API; opt in with `pytest -m live`",
+]
+filterwarnings = ["error::sqlalchemy.exc.SAWarning"]
