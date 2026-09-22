@@ -1,0 +1,65 @@
+# Local stack: Postgres, a one-off setup job, the scheduler worker and the API/admin UI.
+#   docker compose up -d db        # just the database (for local development)
+#   docker compose up -d --build   # everything
+# App settings (API_KEY, CONTACT_EMAIL, LLM keys...) come from .env.
+
+x-app: &app
+  build: .
+  image: fundscout:latest
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fundscout}:${POSTGRES_PASSWORD:-fundscout}@db:5432/${POSTGRES_DB:-fundscout}
+    RAW_STORAGE_DIR: /app/data/raw
+  volumes:
+    - rawdata:/app/data
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fundscout}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fundscout}
+      POSTGRES_DB: ${POSTGRES_DB:-fundscout}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Migrations, taxonomy seed and source definitions; runs to completion on every `up`.
+  setup:
+    <<: *app
+    command: >-
+      sh -c "fundscout db upgrade && fundscout taxonomy seed && fundscout sources sync --dir sources"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    <<: *app
+    command: ["fundscout", "worker"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    command: ["fundscout", "api", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  rawdata:

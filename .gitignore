@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data (raw snapshots etc.)
+data/
+
+# Node (admin-ui)
+node_modules/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

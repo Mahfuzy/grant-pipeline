@@ -1,0 +1,93 @@
+# Grants.gov public search2 API (no key). https://www.grants.gov/api
+name: grants_gov
+adapter: generic_api
+base_url: https://www.grants.gov
+source_type: api
+schedule: "0 5 * * *"
+enabled: true
+terms_reviewed: true
+notes: >
+  Terms reviewed by the project owner (2026-09-21). robots.txt checked 2026-09-21:
+  www.grants.gov is "Allow: /"; api.grants.gov returns 403 for robots.txt, which
+  RFC 9309 treats as no restrictions. Only posted and forecasted opportunities.
+  Search hits lack synopsis/amounts/eligibility, so details come from fetchOpportunity,
+  which is only re-fetched when the hit changes or the snapshot is older than 7 days.
+config:
+  # Grants.gov is the US federal government's official listing of its funding opportunities, so it is a primary source (SPEC §8.2).
+  primary_source: true
+  search:
+    url: https://api.grants.gov/v1/api/search2
+    method: POST
+    body:
+      oppStatuses: "forecasted|posted"
+      sortBy: "openDate|desc"
+  pagination:
+    offset_param: startRecordNum
+    size_param: rows
+    page_size: 100
+    location: body
+    max_pages: 50
+  results_path: data.oppHits
+  total_path: data.hitCount
+  id_field: id
+  item_url: "https://www.grants.gov/search-results-detail/{id}"
+  change_fields: [number, title, agencyCode, openDate, closeDate, oppStatus, docType, cfdaList]
+  detail:
+    url: https://api.grants.gov/v1/api/fetchOpportunity
+    method: POST
+    body:
+      opportunityId: "{id}"
+  refetch_unchanged_after_days: 7
+  # Every response carries a fresh `token`, and some lists (e.g. applicantTypes) come
+  # back in random order, so hash a canonical form.
+  content_hash:
+    mode: json
+    exclude_keys: [token]
+    sort_lists: true
+  # Structured JSON: map fields directly (no LLM). Posted opportunities carry a
+  # `synopsis` block, forecasts a `forecast` block with estimated dates (lower confidence).
+  extraction:
+    funder_country: US
+    rules:
+      - extractor: mapping
+        options:
+          empty_values: ["none", "0"]
+          fields:
+            title: data.opportunityTitle
+            funder_name: [data.agencyDetails.agencyName, data.synopsis.agencyName]
+            description:
+              paths: [data.synopsis.synopsisDesc, data.forecast.forecastDesc]
+              transform: html
+            amount_min: [data.synopsis.awardFloor, data.forecast.awardFloor]
+            amount_max: [data.synopsis.awardCeiling, data.forecast.awardCeiling]
+            currency: {const: USD}
+            amount_text:
+              template:
+                - "Award floor: USD {data.synopsis.awardFloor}"
+                - "Award ceiling: USD {data.synopsis.awardCeiling}"
+                - "Award floor: USD {data.forecast.awardFloor}"
+                - "Award ceiling: USD {data.forecast.awardCeiling}"
+                - "Estimated total funding: USD {data.forecast.estimatedFunding}"
+                - "Expected number of awards: {data.forecast.numberOfAwards}"
+            opening_date:
+              paths:
+                - data.synopsis.postingDateStr
+                - {path: data.forecast.estSynopsisPostingDateStr, confidence: 0.5}
+            closing_date:
+              paths:
+                - data.synopsis.responseDateStr
+                - {path: data.forecast.estApplicationResponseDateStr, confidence: 0.5}
+            deadline_text:
+              [data.synopsis.responseDateDesc, data.forecast.estApplicationResponseDateDesc]
+            eligibility_text:
+              paths:
+                [data.synopsis.applicantEligibilityDesc, data.forecast.applicantEligibilityDesc]
+              transform: html
+            org_types:
+              - "data.synopsis.applicantTypes[*].description"
+              - "data.forecast.applicantTypes[*].description"
+            themes:
+              - "data.synopsis.fundingActivityCategories[*].description"
+              - "data.forecast.fundingActivityCategories[*].description"
+            application_url: $url
+            contact_email: [data.synopsis.agencyContactEmail, data.forecast.agencyContactEmail]
