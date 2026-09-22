@@ -13,6 +13,8 @@ notes: >
   Search hits lack synopsis/amounts/eligibility, so details come from fetchOpportunity,
   which is only re-fetched when the hit changes or the snapshot is older than 7 days.
 config:
+  # Grants.gov is the US federal government's official listing of its funding opportunities, so it is a primary source (SPEC §8.2).
+  primary_source: true
   search:
     url: https://api.grants.gov/v1/api/search2
     method: POST
@@ -42,3 +44,50 @@ config:
     mode: json
     exclude_keys: [token]
     sort_lists: true
+  # Structured JSON: map fields directly (no LLM). Posted opportunities carry a
+  # `synopsis` block, forecasts a `forecast` block with estimated dates (lower confidence).
+  extraction:
+    funder_country: US
+    rules:
+      - extractor: mapping
+        options:
+          empty_values: ["none", "0"]
+          fields:
+            title: data.opportunityTitle
+            funder_name: [data.agencyDetails.agencyName, data.synopsis.agencyName]
+            description:
+              paths: [data.synopsis.synopsisDesc, data.forecast.forecastDesc]
+              transform: html
+            amount_min: [data.synopsis.awardFloor, data.forecast.awardFloor]
+            amount_max: [data.synopsis.awardCeiling, data.forecast.awardCeiling]
+            currency: {const: USD}
+            amount_text:
+              template:
+                - "Award floor: USD {data.synopsis.awardFloor}"
+                - "Award ceiling: USD {data.synopsis.awardCeiling}"
+                - "Award floor: USD {data.forecast.awardFloor}"
+                - "Award ceiling: USD {data.forecast.awardCeiling}"
+                - "Estimated total funding: USD {data.forecast.estimatedFunding}"
+                - "Expected number of awards: {data.forecast.numberOfAwards}"
+            opening_date:
+              paths:
+                - data.synopsis.postingDateStr
+                - {path: data.forecast.estSynopsisPostingDateStr, confidence: 0.5}
+            closing_date:
+              paths:
+                - data.synopsis.responseDateStr
+                - {path: data.forecast.estApplicationResponseDateStr, confidence: 0.5}
+            deadline_text:
+              [data.synopsis.responseDateDesc, data.forecast.estApplicationResponseDateDesc]
+            eligibility_text:
+              paths:
+                [data.synopsis.applicantEligibilityDesc, data.forecast.applicantEligibilityDesc]
+              transform: html
+            org_types:
+              - "data.synopsis.applicantTypes[*].description"
+              - "data.forecast.applicantTypes[*].description"
+            themes:
+              - "data.synopsis.fundingActivityCategories[*].description"
+              - "data.forecast.fundingActivityCategories[*].description"
+            application_url: $url
+            contact_email: [data.synopsis.agencyContactEmail, data.forecast.agencyContactEmail]

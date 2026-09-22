@@ -3,13 +3,16 @@ from alembic.migration import MigrationContext
 from sqlalchemy import Engine, inspect
 
 from fundscout.db import migrations
+from fundscout.db.migrations import include_object
 from fundscout.db.models import Base
 from tests.conftest import TEST_DATABASE_URL
 
 
 def test_models_match_migrations(db_engine: Engine) -> None:
     with db_engine.connect() as conn:
-        ctx = MigrationContext.configure(conn, opts={"compare_type": True})
+        ctx = MigrationContext.configure(
+            conn, opts={"compare_type": True, "include_object": include_object}
+        )
         assert compare_metadata(ctx, Base.metadata) == []
 
 

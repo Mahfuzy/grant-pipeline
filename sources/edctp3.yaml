@@ -14,6 +14,8 @@ notes: >
   the RSS feed (/node/93/rss_en) because the feed only carries the latest 30 items.
   The site returns 429 at 3 s/request, hence the slower rate limit.
 config:
+  # The EDCTP3 website and its EU Funding & Tenders Portal topic pages are the funder's own official channels, so this is a primary source (SPEC §8.2).
+  primary_source: true
   listing_url: https://www.global-health-edctp3.europa.eu/funding/calls-proposals_en
   item_selector: article.ecl-content-item
   link_selector: .ecl-content-block__title a
@@ -37,3 +39,14 @@ config:
     # EDCTP3 document pages are wrappers around a PDF; fetch the PDF.
     - match: 'https://www\.global-health-edctp3\.europa\.eu/document/(?P<doc>[0-9a-f-]+)_en'
       fetch_url: "https://www.global-health-edctp3.europa.eu/document/download/{doc}_en"
+  # F&T Portal topic JSON is structured; EDCTP3's own pages and PDFs go through the LLM.
+  extraction:
+    date_order: DMY
+    rules:
+      - match_url: "funding-tenders/opportunities/portal/screen/opportunities/topic-details/"
+        match_content_type: json
+        extractor: ft_topic
+        options:
+          funder_name: Global Health EDCTP3 Joint Undertaking
+          funder_website: https://www.global-health-edctp3.europa.eu
+      - extractor: llm

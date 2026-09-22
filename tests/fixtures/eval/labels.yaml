@@ -1,0 +1,206 @@
+# Hand-labelled extraction set (SPEC §12, M3). Values were read from the documents
+# themselves, not copied from extractor output. Only listed fields are scored; a null
+# value means "not stated in the document".
+#
+# file: relative to this directory. source: which sources/<name>.yaml extraction config
+# applies. url / content_type: as stored for the document.
+#
+# Conventions:
+# - Grants.gov: opening_date = posting date; forecasts use the estimated dates; an award
+#   floor of "none" or "0" means no minimum is stated.
+# - F&T topics: amounts are the per-project EU contribution; for two-stage calls
+#   closing_date is the stage-1 deadline and deadline_type is "multiple".
+# - The EDCTP3 PDF describes four topics; each states "maximum ... EUR 1 million".
+
+- id: grants_gov-357305
+  source: grants_gov
+  file: ../grants_gov/fetch_357305.json
+  url: https://www.grants.gov/search-results-detail/357305
+  content_type: application/json
+  grants:
+    - title: Feasibility Clinical Trials of Mind and Body Interventions for NCCIH High Priority Research Topics (R34 Clinical Trial Required)
+      funder_name: National Institutes of Health
+      amount_min: null
+      amount_max: null
+      opening_date: 2024-11-21
+      closing_date: 2026-11-17
+      deadline_type: fixed
+      themes: [health]
+      application_url: https://www.grants.gov/search-results-detail/357305
+
+- id: grants_gov-357658
+  source: grants_gov
+  file: ../grants_gov/fetch_357658.json
+  url: https://www.grants.gov/search-results-detail/357658
+  content_type: application/json
+  grants:
+    - title: "Limited Competition: Small Grant Program for the NCATS Clinical and Translational Science Award (CTSA) Program (R03 Clinical Trial Optional)"
+      funder_name: National Institutes of Health
+      amount_min: null
+      amount_max: 50000
+      currency: USD
+      opening_date: 2024-12-11
+      closing_date: 2026-10-19
+      deadline_type: fixed
+      themes: [health]
+
+- id: grants_gov-355824-forecast
+  source: grants_gov
+  file: ../grants_gov/fetch_355824_a.json
+  url: https://www.grants.gov/search-results-detail/355824
+  content_type: application/json
+  grants:
+    - title: Making America Healthy Again by Addressing Dementia Disparities
+      funder_name: Office of the Assistant Secretary for Health
+      amount_min: 450000
+      amount_max: 600000
+      currency: USD
+      opening_date: 2025-04-14
+      closing_date: 2025-06-23
+      deadline_type: fixed
+      themes: [health]
+
+- id: grants_gov-363893
+  source: grants_gov
+  file: grants_gov_363893.json
+  url: https://www.grants.gov/search-results-detail/363893
+  content_type: application/json
+  grants:
+    - title: BJA FY 2026 Upholding the Rule of Law and Preventing Wrongful Convictions Program
+      funder_name: Bureau of Justice Assistance
+      amount_min: null
+      amount_max: 600000
+      currency: USD
+      opening_date: 2026-09-21
+      closing_date: 2026-11-02
+      deadline_type: fixed
+
+- id: grants_gov-363900
+  source: grants_gov
+  file: grants_gov_363900.json
+  url: https://www.grants.gov/search-results-detail/363900
+  content_type: application/json
+  grants:
+    - title: BJA FY 2026 Veterans Treatment Court Program
+      funder_name: Bureau of Justice Assistance
+      amount_min: null
+      amount_max: 2500000
+      currency: USD
+      opening_date: 2026-09-21
+      closing_date: 2026-10-29
+      deadline_type: fixed
+
+- id: ft-2026-03-digit-02
+  source: edctp3
+  file: ../edctp3/ft_topic_horizon-ju-gh-edctp3-2026-03-digit-02.json
+  url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2026-03-digit-02
+  content_type: application/json
+  grants:
+    - title: Enhancing integrated research and healthcare in sub-Saharan Africa through digital innovation and Artificial Intelligence
+      funder_name: Global Health EDCTP3 Joint Undertaking
+      amount_min: 2250000
+      amount_max: 2250000
+      currency: EUR
+      opening_date: 2026-01-14
+      closing_date: 2026-09-02
+      deadline_type: fixed
+      application_url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2026-03-digit-02
+
+- id: ft-2022-call1-01-03
+  source: edctp3
+  file: ft_horizon-ju-gh-edctp3-2022-call1-01-03.json
+  url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2022-call1-01-03
+  content_type: application/json
+  grants:
+    - title: Genomic epidemiology for surveillance and control of poverty-related and emerging/re-emerging infections in sub-Saharan Africa
+      funder_name: Global Health EDCTP3 Joint Undertaking
+      amount_min: 5000000
+      amount_max: 5000000
+      currency: EUR
+      opening_date: 2022-05-11
+      closing_date: 2022-08-30
+      deadline_type: fixed
+
+- id: ft-2024-01-01-two-stage
+  source: edctp3
+  file: ft_horizon-ju-gh-edctp3-2024-01-01-two-stage.json
+  url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2024-01-01-two-stage
+  content_type: application/json
+  grants:
+    - title: Developing novel, innovative HIV therapeutics for reducing the disease burden of HIV in sub-Saharan Africa
+      funder_name: Global Health EDCTP3 Joint Undertaking
+      amount_min: 5500000
+      amount_max: 5500000
+      currency: EUR
+      opening_date: 2024-01-18
+      closing_date: 2024-04-04
+      deadline_type: multiple
+
+- id: ft-2024-mpox
+  source: edctp3
+  file: ft_horizon-ju-gh-edctp3-2024-mpox.json
+  url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2024-mpox
+  content_type: application/json
+  grants:
+    - title: Mobilisation of Emergency funding for Mpox outbreak research response
+      funder_name: Global Health EDCTP3 Joint Undertaking
+      amount_min: 1250000
+      amount_max: 1250000
+      currency: EUR
+      opening_date: 2024-05-14
+      closing_date: 2024-05-29
+      deadline_type: fixed
+
+- id: ft-2025-01-tb-01-two-stage
+  source: edctp3
+  file: ft_horizon-ju-gh-edctp3-2025-01-tb-01-two-stage.json
+  url: https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/horizon-ju-gh-edctp3-2025-01-tb-01-two-stage
+  content_type: application/json
+  grants:
+    - title: Global collaboration action for the development of vaccines for reducing the disease burden of Tuberculosis in sub-Saharan Africa
+      funder_name: Global Health EDCTP3 Joint Undertaking
+      amount_min: 15300000
+      amount_max: 15300000
+      currency: EUR
+      opening_date: 2025-01-30
+      closing_date: 2025-03-20
+      deadline_type: multiple
+
+- id: edctp3-ebola-iba-pdf
+  source: edctp3
+  file: ../edctp3/document_d3d297d7.pdf
+  url: https://www.global-health-edctp3.europa.eu/document/d3d297d7-6fe2-442c-bd25-917f2b6b9dbf_en
+  content_type: application/pdf
+  grants:
+    - title: Mobilisation of research funds for the expansion of activities of project EBO-PEP (101145675) in the context of the recent Bundibugyo outbreak in Democratic Republic of the Congo (DRC) and Uganda
+      funder_name: Global Health EDCTP3
+      amount_min: null
+      amount_max: 1000000
+      currency: EUR
+      opening_date: 2026-06-30
+      closing_date: 2026-07-07
+      deadline_type: fixed
+    - title: Mobilisation of research funds for the expansion of activities of project Ebola PREP-TBOX (101145709) in the context of the recent Bundibugyo outbreak in Democratic Republic of the Congo (DRC) and Uganda
+      funder_name: Global Health EDCTP3
+      amount_min: null
+      amount_max: 1000000
+      currency: EUR
+      opening_date: 2026-06-30
+      closing_date: 2026-07-07
+      deadline_type: fixed
+    - title: Mobilisation of research funds for the expansion of activities of project EPoCA (101145795) in the context of the recent Bundibugyo outbreak in Democratic Republic of the Congo (DRC) and Uganda
+      funder_name: Global Health EDCTP3
+      amount_min: null
+      amount_max: 1000000
+      currency: EUR
+      opening_date: 2026-06-30
+      closing_date: 2026-07-07
+      deadline_type: fixed
+    - title: Mobilisation of research funds for preparing a regional surveillance and preparedness framework in the context of the recent Bundibugyo outbreak in Democratic Republic of the Congo (DRC) and Uganda
+      funder_name: Global Health EDCTP3
+      amount_min: null
+      amount_max: 1000000
+      currency: EUR
+      opening_date: 2026-06-30
+      closing_date: 2026-07-07
+      deadline_type: fixed

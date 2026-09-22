@@ -168,18 +168,25 @@ class EdctpWeb(FakeWeb):
             self.add(f"{LISTING}?page={page}", fixture_bytes(f"edctp3/listing_page{page}.html"))
         self.ft_topic = fixture_bytes("edctp3/ft_topic_horizon-ju-gh-edctp3-2026-03-digit-02.json")
         self.handle_prefix(FT_JSON, self._ft_topic)
-        # Test stand-ins for documents not saved as fixtures.
+        # Stand-in for the (nearly empty) EDCTP3 page, which is not saved as a fixture.
         self.add(
-            f"{EDCTP}/document/download/d3d297d7-6fe2-442c-bd25-917f2b6b9dbf_en", b"%PDF-1.4 test"
+            f"{EDCTP}/document/download/d3d297d7-6fe2-442c-bd25-917f2b6b9dbf_en",
+            fixture_bytes("edctp3/document_d3d297d7.pdf"),
+            headers={"Content-Type": "application/pdf"},
         )
         self.add(f"{EDCTP}/funding/calls-proposals/support-africa-office_en", b"<main>page</main>")
 
     def _ft_topic(self, request: httpx.Request) -> httpx.Response:
+        """One saved topic stands in for every topic; its title gets the requested topic
+        id so the 33 stand-ins are distinct grants."""
         if request.headers.get("If-Modified-Since") == FT_LAST_MODIFIED:
             return httpx.Response(304)
+        topic_id = request.url.path.rsplit("/", 1)[-1].removesuffix(".json")
+        data = json.loads(self.ft_topic)
+        data["TopicDetails"]["title"] += f" ({topic_id})"
         return httpx.Response(
             200,
-            content=self.ft_topic,
+            content=json.dumps(data).encode(),
             headers={"Last-Modified": FT_LAST_MODIFIED, "Content-Type": "application/json"},
         )
 

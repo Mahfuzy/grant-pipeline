@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from fundscout.config import Settings
 from fundscout.db.models import RawDocument, Source
+from fundscout.extract.pipeline import ExtractionConfig
 from fundscout.fetch.hashing import HashSpec, content_hash
 from fundscout.fetch.http import FetchedDocument, FetchRequest, HttpClient
 
@@ -58,6 +59,11 @@ class AdapterConfig(BaseModel):
     # until the snapshot is this many days old. None: always fetch.
     refetch_unchanged_after_days: float | None = Field(default=None, gt=0)
     url_rewrites: list[UrlRewrite] = []
+    # The source is the funder's official channel (SPEC §8.2: its values win conflicts
+    # and missing from its listing can flag possibly_removed).
+    primary_source: bool = False
+    # How fetched documents are turned into grants (M3). Default: LLM extraction.
+    extraction: ExtractionConfig = ExtractionConfig()
 
 
 @dataclass(frozen=True)

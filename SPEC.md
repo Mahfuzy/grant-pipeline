@@ -37,7 +37,7 @@ Build the data foundation for a platform that helps organisations find grant fun
 | HTML parsing | `selectolax` or BeautifulSoup; `trafilatura` for main-content extraction |
 | RSS | `feedparser` |
 | PDF | `pdfplumber` |
-| LLM extraction | Anthropic API (model name from env var `EXTRACTION_MODEL`) using tool use / structured output |
+| LLM extraction | Anthropic API or Groq, chosen by env var `LLM_PROVIDER` (model name from `EXTRACTION_MODEL`), using structured output. Groq added at the project owner's request (2026-09-21). |
 | Fuzzy matching | `rapidfuzz` |
 | Scheduling | APScheduler in a dedicated worker process |
 | API | FastAPI |

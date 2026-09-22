@@ -39,6 +39,9 @@ class TaxonomyEntry(BaseModel):
     label: str = Field(min_length=1, max_length=200)
     parent: str | None = None
     countries: tuple[str, ...] = ()
+    # Other names that map to this entry during normalisation (matched case-insensitively,
+    # e.g. a source's own category labels). Not stored in the database.
+    aliases: tuple[str, ...] = ()
 
 
 _entries_adapter = TypeAdapter(list[TaxonomyEntry])

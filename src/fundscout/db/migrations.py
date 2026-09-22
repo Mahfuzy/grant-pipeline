@@ -24,3 +24,15 @@ def upgrade(revision: str = "head", database_url: str | None = None) -> None:
 
 def downgrade(revision: str, database_url: str | None = None) -> None:
     command.downgrade(alembic_config(database_url), revision)
+
+
+# Expression indexes that autogenerate cannot compare reliably (it reports them as changed
+# on every run). They are created and dropped by hand-written migration code.
+UNCOMPARED_INDEXES = {"ix_grants_search"}
+
+
+def include_object(
+    obj: object, name: str | None, type_: str, reflected: bool, compare_to: object
+) -> bool:
+    """Alembic autogenerate filter shared by alembic/env.py and the migration test."""
+    return not (type_ == "index" and name in UNCOMPARED_INDEXES)

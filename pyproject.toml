@@ -63,9 +63,17 @@ exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+# Amount/date parsing must match en/em dashes and no-break spaces.
+allowed-confusables = ["–", "—", "\u00a0", "\u202f"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Option", "typer.Argument"]
+extend-immutable-calls = [
+    "typer.Option",
+    "typer.Argument",
+    "fastapi.Query",
+    "fastapi.Depends",
+    "fastapi.Security",
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -74,7 +82,7 @@ plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["feedparser.*", "trafilatura.*", "pdfplumber.*"]
+module = ["feedparser.*", "trafilatura.*", "pdfplumber.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

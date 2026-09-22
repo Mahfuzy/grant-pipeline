@@ -117,10 +117,34 @@ def sources_add(
         typer.echo("warning: terms_reviewed is false; the scheduler will not run it.", err=True)
 
 
-async def _run(names: list[str], force: bool, limit: int | None) -> bool:
+@sources_app.command("sync")
+def sources_sync(
+    directory: Path = typer.Option(
+        Path("sources"), "--dir", exists=True, file_okay=False, help="Directory of source YAML."
+    ),
+) -> None:
+    """Add or update every source YAML in a directory."""
+    from fundscout.db.session import session_scope
+    from fundscout.sources.spec import load_source_spec, upsert_source
+
+    files = sorted(directory.glob("*.yaml"))
+    with session_scope() as session:
+        for file in files:
+            spec = load_source_spec(file)
+            _, created = upsert_source(session, spec)
+            typer.echo(f"{'Added' if created else 'Updated'} source {spec.name!r}.")
+            if not spec.terms_reviewed:
+                typer.echo(
+                    f"warning: {spec.name}: terms_reviewed is false; the scheduler skips it.",
+                    err=True,
+                )
+
+
+async def _run(names: list[str], force: bool, limit: int | None, extract: bool = True) -> bool:
     from fundscout.db.models import RunStatus
     from fundscout.db.session import get_sessionmaker
     from fundscout.fetch.storage import LocalRawStorage
+    from fundscout.pipeline.extraction import make_llm_factory
     from fundscout.pipeline.runner import SourceNotRunnable, build_http_client, run_source
 
     settings = get_settings()
@@ -131,6 +155,7 @@ async def _run(names: list[str], force: bool, limit: int | None) -> bool:
             err=True,
         )
     storage = LocalRawStorage(settings.raw_storage_dir)
+    llm_factory = make_llm_factory(settings) if extract else None
     ok = True
     async with build_http_client(settings) as http:
         for name in names:
@@ -144,6 +169,8 @@ async def _run(names: list[str], force: bool, limit: int | None) -> bool:
                         storage=storage,
                         force=force,
                         limit=limit,
+                        extract=extract,
+                        llm_factory=llm_factory,
                     )
                 except SourceNotRunnable as exc:
                     typer.echo(f"error: {exc}", err=True)
@@ -154,7 +181,8 @@ async def _run(names: list[str], force: bool, limit: int | None) -> bool:
                 typer.echo(
                     f"{name}: {run.status.value} - discovered {run.items_discovered}, "
                     f"stored {stored} new/changed, unchanged {run.items_unchanged}, "
-                    f"errors {run.errors} ({run.items_fetched} network fetches)"
+                    f"errors {run.errors} ({run.items_fetched} network fetches); "
+                    f"grants created {run.grants_created}, updated {run.grants_updated}"
                 )
                 ok = ok and run.status != RunStatus.FAILED
     return ok
@@ -165,11 +193,12 @@ def run_command(
     source: str = typer.Option(..., "--source", help="Source name."),
     force: bool = typer.Option(False, "--force", help="Run even if disabled/terms not reviewed."),
     limit: int | None = typer.Option(None, "--limit", min=1, help="Process at most N items."),
+    extract: bool = typer.Option(True, "--extract/--no-extract", help="Extract new documents."),
 ) -> None:
     """Run one source now."""
     if force:
         typer.echo("warning: --force bypasses the enabled/terms_reviewed checks.", err=True)
-    if not asyncio.run(_run([source], force, limit)):
+    if not asyncio.run(_run([source], force, limit, extract)):
         raise typer.Exit(1)
 
 
@@ -194,6 +223,101 @@ def run_all_command(
         return
     if not asyncio.run(_run(names, False, limit)):
         raise typer.Exit(1)
+
+
+@app.command("reprocess")
+def reprocess_command(
+    source: str = typer.Option(..., "--source", help="Source name."),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="At most N documents."),
+) -> None:
+    """Re-extract a source's stored documents (latest snapshot per URL); no fetching."""
+    from fundscout.db.models import Source
+    from fundscout.db.session import get_sessionmaker
+    from fundscout.fetch.storage import LocalRawStorage
+    from fundscout.pipeline.extraction import make_llm_factory, reprocess_source
+
+    settings = get_settings()
+    with get_sessionmaker()() as session:
+        src = session.scalars(select(Source).where(Source.name == source)).one_or_none()
+        if src is None:
+            typer.echo(f"error: no source named {source!r}", err=True)
+            raise typer.Exit(1)
+        stats = asyncio.run(
+            reprocess_source(
+                session,
+                src,
+                storage=LocalRawStorage(settings.raw_storage_dir),
+                settings=settings,
+                llm_factory=make_llm_factory(settings),
+                limit=limit,
+            )
+        )
+    typer.echo(
+        f"{source}: extracted {stats.documents} documents ({stats.grants} grants), "
+        f"failed {stats.failed}, skipped {stats.skipped + stats.llm_not_configured}"
+        + (" (LLM not configured)" if stats.llm_not_configured else "")
+        + f", tokens in/out {stats.usage['input_tokens']}/{stats.usage['output_tokens']}"
+        + f"; grants created {stats.store.created}, updated {stats.store.updated}"
+    )
+    if stats.failed:
+        raise typer.Exit(1)
+
+
+@app.command("refresh-status")
+def refresh_status_command() -> None:
+    """Recompute grant statuses as dates pass (the worker also does this daily)."""
+    from fundscout.db.session import session_scope
+    from fundscout.pipeline.store import refresh_statuses
+
+    with session_scope() as session:
+        changed = refresh_statuses(session)
+    typer.echo(f"{changed} grant statuses changed.")
+
+
+@app.command("worker")
+def worker_command() -> None:
+    """Start the scheduler: runs each source on its cron schedule (SPEC §9: only enabled
+    sources whose terms have been reviewed)."""
+    from fundscout.pipeline.scheduler import run_worker
+
+    asyncio.run(run_worker(get_settings()))
+
+
+@app.command("api")
+def api_command(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8000, "--port"),
+) -> None:
+    """Serve the internal API (and the built admin UI, if present)."""
+    import uvicorn
+
+    settings = get_settings()
+    if settings.api_key is None:
+        typer.echo(
+            "warning: API_KEY is not set; every endpoint except /health will refuse.", err=True
+        )
+    uvicorn.run("fundscout.api.main:app", host=host, port=port, log_config=None)
+
+
+@app.command("eval-extraction")
+def eval_extraction_command(
+    labels: Path = typer.Option(
+        Path("tests/fixtures/eval/labels.yaml"), "--labels", exists=True, dir_okay=False
+    ),
+    sources_dir: Path = typer.Option(Path("sources"), "--sources-dir", exists=True),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Skip documents that need the LLM."),
+    force_llm: bool = typer.Option(
+        False, "--force-llm", help="Send every document through the LLM (costs tokens)."
+    ),
+) -> None:
+    """Run extraction on the hand-labelled set and report per-field accuracy."""
+    from fundscout.extract.evaluate import run_eval
+    from fundscout.pipeline.extraction import make_llm_factory
+
+    settings = get_settings()
+    llm_factory = None if no_llm else make_llm_factory(settings)
+    report = run_eval(labels, sources_dir, llm_factory=llm_factory, force_llm=force_llm)
+    typer.echo(report.render())
 
 
 if __name__ == "__main__":

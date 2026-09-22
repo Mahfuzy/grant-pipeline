@@ -1,5 +1,5 @@
-"""Runs one source end to end (SPEC §4). M2 covers discover -> fetch -> store raw -> skip
-unchanged; extraction and later stages plug in from M3 onwards.
+"""Runs one source end to end (SPEC §4): discover -> fetch -> store raw -> skip unchanged
+-> extract -> normalise -> match/merge -> record changes -> status -> review flags.
 
 One failing item never stops the run: the error is logged, recorded in the run's
 error_log, and processing continues.
@@ -16,9 +16,12 @@ from sqlalchemy.orm import Session
 
 from fundscout.config import Settings
 from fundscout.db.models import RawDocument, RunStatus, Source, SourceRun
+from fundscout.extract.pipeline import LlmFactory
 from fundscout.fetch.http import HttpClient
 from fundscout.fetch.ratelimit import DomainRateLimiter
 from fundscout.fetch.storage import RawStorage
+from fundscout.pipeline.extraction import ExtractionStats, extract_raw_document
+from fundscout.pipeline.store import check_repeated_failures, track_presence
 from fundscout.sources.base import DiscoveredItem, RunContext, SourceAdapter
 from fundscout.sources.registry import build_adapter
 
@@ -87,7 +90,10 @@ async def run_source(
     storage: RawStorage,
     force: bool = False,
     limit: int | None = None,
+    extract: bool = True,
+    llm_factory: LlmFactory | None = None,
 ) -> SourceRun:
+    """Run a source. New or changed documents are extracted unless extract=False."""
     source = session.scalars(select(Source).where(Source.name == source_name)).one_or_none()
     if source is None:
         raise SourceNotRunnable(f"no source named {source_name!r}")
@@ -100,6 +106,7 @@ async def run_source(
     session.commit()
 
     counts = Counts()
+    stats = ExtractionStats()
     error_log: list[dict[str, Any]] = []
     with structlog.contextvars.bound_contextvars(source=source.name, run_id=str(run.id)):
         ctx = RunContext(
@@ -112,7 +119,9 @@ async def run_source(
             log.exception("discovery failed")
             error_log.append({"stage": "discover", "error": repr(exc)})
             counts.errors += 1
-            return _finish(session, run, source, counts, error_log, discovery_failed=True)
+            return _finish(
+                session, run, source, counts, error_log, stats, settings, discovery_failed=True
+            )
 
         counts.items_discovered = len(items)
         _save_progress(session, run, counts, error_log)
@@ -121,7 +130,19 @@ async def run_source(
         for item in items:
             with structlog.contextvars.bound_contextvars(url=item.url):
                 try:
-                    await _process_item(session, adapter, item, ctx, storage, counts)
+                    stored = await _process_item(session, adapter, item, ctx, storage, counts)
+                    if stored is not None and extract:
+                        raw, content = stored
+                        await extract_raw_document(
+                            session,
+                            source,
+                            raw,
+                            content,
+                            settings=settings,
+                            llm_factory=llm_factory,
+                            stats=stats,
+                            run_id=run.id,
+                        )
                     session.commit()
                 except Exception as exc:
                     session.rollback()
@@ -131,7 +152,46 @@ async def run_source(
                         error_log.append({"stage": "fetch", "url": item.url, "error": repr(exc)})
                 _save_progress(session, run, counts, error_log)
 
-        return _finish(session, run, source, counts, error_log)
+        # Presence tracking needs the complete listing: not for --limit runs, runs with
+        # errors, or a listing that shrank suspiciously (e.g. a truncated API response).
+        if limit is None and counts.errors == 0 and _listing_complete(session, run, counts):
+            try:
+                track_presence(session, source, {item.url for item in items}, settings=settings)
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                log.exception("presence tracking failed")
+                error_log.append({"stage": "presence", "error": repr(exc)})
+                counts.errors += 1
+
+        return _finish(session, run, source, counts, error_log, stats, settings)
+
+
+# A listing smaller than this share of the previous successful run's is not trusted for
+# presence tracking (missing grants would be counted as removed).
+LISTING_DROP_RATIO = 0.5
+
+
+def _listing_complete(session: Session, run: SourceRun, counts: Counts) -> bool:
+    previous = session.scalars(
+        select(SourceRun)
+        .where(
+            SourceRun.source_id == run.source_id,
+            SourceRun.id != run.id,
+            SourceRun.status == RunStatus.SUCCESS,
+            SourceRun.items_discovered > 0,
+        )
+        .order_by(SourceRun.started_at.desc())
+        .limit(1)
+    ).first()
+    if previous and counts.items_discovered < previous.items_discovered * LISTING_DROP_RATIO:
+        log.warning(
+            "listing much smaller than last run; not counting missing grants",
+            discovered=counts.items_discovered,
+            previous=previous.items_discovered,
+        )
+        return False
+    return True
 
 
 async def _process_item(
@@ -141,7 +201,8 @@ async def _process_item(
     ctx: RunContext,
     storage: RawStorage,
     counts: Counts,
-) -> None:
+) -> tuple[RawDocument, bytes] | None:
+    """Fetch an item; returns the new snapshot and its content when one was stored."""
     now = datetime.now(UTC)
     previous = latest_snapshot(session, ctx.source, item.url)
 
@@ -158,7 +219,7 @@ async def _process_item(
     ):
         counts.items_unchanged += 1
         log.info("unchanged", reason="discovery_unchanged")
-        return
+        return None
 
     document = await adapter.fetch(item, ctx, previous)
     if item.inline_content is None:
@@ -167,9 +228,10 @@ async def _process_item(
     if document.not_modified and previous is not None:
         previous.last_checked_at = now
         previous.change_key = item.change_key
+        previous.discovery_metadata = item.metadata
         counts.items_unchanged += 1
         log.info("unchanged", reason="not_modified")
-        return
+        return None
 
     digest = adapter.content_hash(document)
     if previous is not None and previous.content_hash == digest:
@@ -177,27 +239,30 @@ async def _process_item(
         previous.change_key = item.change_key
         previous.etag = document.etag or previous.etag
         previous.last_modified = document.last_modified or previous.last_modified
+        previous.discovery_metadata = item.metadata
         counts.items_unchanged += 1
         log.info("unchanged", reason="same_hash")
-        return
+        return None
 
     key = storage.save(document.content)
-    session.add(
-        RawDocument(
-            source_id=ctx.source.id,
-            url=item.url,
-            fetched_at=document.fetched_at,
-            http_status=document.status_code,
-            content_type=document.content_type,
-            content_hash=digest,
-            storage_path=key,
-            etag=document.etag,
-            last_modified=document.last_modified,
-            last_checked_at=now,
-            change_key=item.change_key,
-        )
+    raw = RawDocument(
+        source_id=ctx.source.id,
+        url=item.url,
+        fetched_at=document.fetched_at,
+        http_status=document.status_code,
+        content_type=document.content_type,
+        content_hash=digest,
+        storage_path=key,
+        etag=document.etag,
+        last_modified=document.last_modified,
+        last_checked_at=now,
+        change_key=item.change_key,
+        discovery_metadata=item.metadata,
     )
+    session.add(raw)
+    session.flush()
     log.info("stored snapshot", new=previous is None, storage_path=key)
+    return raw, document.content
 
 
 def _save_progress(
@@ -217,9 +282,14 @@ def _finish(
     source: Source,
     counts: Counts,
     error_log: list[dict[str, Any]],
+    stats: ExtractionStats,
+    settings: Settings,
     discovery_failed: bool = False,
 ) -> SourceRun:
     run.finished_at = datetime.now(UTC)
+    run.grants_created = stats.store.created
+    run.grants_updated = stats.store.updated
+    counts.errors += stats.store_failed
     if discovery_failed or (counts.errors and counts.errors >= counts.items_discovered):
         run.status = RunStatus.FAILED
     elif counts.errors:
@@ -230,6 +300,9 @@ def _finish(
     if run.status in (RunStatus.SUCCESS, RunStatus.PARTIAL):
         source.last_success_at = run.finished_at
     _save_progress(session, run, counts, error_log)
+    if run.status == RunStatus.FAILED:
+        check_repeated_failures(session, source, settings=settings)
+        session.commit()
     log.info(
         "run finished",
         status=run.status.value,
@@ -237,5 +310,6 @@ def _finish(
         fetched=counts.items_fetched,
         unchanged=counts.items_unchanged,
         errors=counts.errors,
+        **stats.as_log(),
     )
     return run

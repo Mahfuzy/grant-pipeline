@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    literal_column,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
@@ -209,6 +210,8 @@ class RawDocument(TimestampedBase):
     )
     # Hash of the discovery data (listing entry, feed entry, API search hit) at last check.
     change_key: Mapped[str | None] = mapped_column(String(64))
+    # The discovery data itself, kept so documents can be re-extracted with the same hints.
+    discovery_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 # --- Funders and grants --------------------------------------------------------------------
@@ -228,6 +231,19 @@ class Funder(TimestampedBase):
 
 class Grant(TimestampedBase):
     __tablename__ = "grants"
+    __table_args__ = (
+        # Full-text search for GET /grants?q=
+        Index(
+            "ix_grants_search",
+            func.to_tsvector(
+                literal_column("'english'::regconfig"),
+                func.coalesce(literal_column("title"), "")
+                + " "
+                + func.coalesce(literal_column("description"), ""),
+            ),
+            postgresql_using="gin",
+        ),
+    )
 
     funder_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("funders.id", ondelete="SET NULL"), index=True
@@ -279,6 +295,8 @@ class Grant(TimestampedBase):
     )
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    # Fields corrected by hand (PATCH /grants/{id}); the pipeline no longer overwrites them.
+    manual_overrides: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
 
     funder: Mapped[Funder | None] = relationship(back_populates="grants")
     sources: Mapped[list["GrantSource"]] = relationship(
@@ -297,16 +315,21 @@ class Grant(TimestampedBase):
 
 
 class GrantSource(TimestampedBase):
-    """Where a grant was found. One row per (source, url)."""
+    """Where a grant was found. One row per (source, url, item_key).
+
+    item_key is "" when a document describes one grant; when one document describes
+    several (e.g. a call PDF with four topics), it is the grant's normalised title.
+    """
 
     __tablename__ = "grant_sources"
-    __table_args__ = (UniqueConstraint("source_id", "url"),)
+    __table_args__ = (UniqueConstraint("source_id", "url", "item_key"),)
 
     grant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("grants.id", ondelete="CASCADE"), index=True
     )
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
     url: Mapped[str] = mapped_column(Text)
+    item_key: Mapped[str] = mapped_column(Text, default="", server_default="")
     raw_document_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("raw_documents.id", ondelete="SET NULL")
     )
@@ -439,6 +462,7 @@ class GrantChange(TimestampedBase):
         default=ChangeSource.PIPELINE,
         server_default=ChangeSource.PIPELINE.value,
     )
+    changed_by: Mapped[str | None] = mapped_column(String(200))  # manual changes only
     field: Mapped[str] = mapped_column(String(100))
     old_value: Mapped[Any] = mapped_column(JSONB(none_as_null=True), nullable=True)
     new_value: Mapped[Any] = mapped_column(JSONB(none_as_null=True), nullable=True)
@@ -449,16 +473,20 @@ class GrantChange(TimestampedBase):
 
 class ExtractionResult(TimestampedBase):
     __tablename__ = "extraction_results"
+    __table_args__ = (
+        Index("ix_extraction_results_document_created", "raw_document_id", "created_at"),
+    )
 
     raw_document_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("raw_documents.id", ondelete="CASCADE"), index=True
+        ForeignKey("raw_documents.id", ondelete="CASCADE")
     )
     method: Mapped[ExtractionMethod] = mapped_column(
         str_enum(ExtractionMethod, "extraction_method")
     )
     model: Mapped[str | None] = mapped_column(String(200))
     output: Mapped[Any] = mapped_column(JSONB, nullable=False)
-    field_confidence: Mapped[dict[str, float] | None] = mapped_column(JSONB)
+    # One {field: confidence} map per extracted grant.
+    field_confidence: Mapped[list[dict[str, float]] | None] = mapped_column(JSONB)
 
 
 class ReviewItem(TimestampedBase):
